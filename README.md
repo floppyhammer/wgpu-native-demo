@@ -1,0 +1,1 @@
+Download the prebuilt wgpu library from [here](https://github.com/gfx-rs/wgpu-native) and extract the files into `third_party/wgpu`.

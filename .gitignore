@@ -1,0 +1,12 @@
+# Build results
+bin/
+
+# Build files
+cmake-build-debug/
+cmake-build-release/
+cmake-build-relwithdebinfo/
+
+# Jetbrains IDEs
+.idea/
+
+third_party/wgpu/
