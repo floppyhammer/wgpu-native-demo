@@ -1,9 +1,16 @@
+#include <array>
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
 
-#include "webgpu.h"
-#include "wgpu.h"
+#include "../common.h"
+
+#ifdef EMSCRIPTEN
+    #include <webgpu/webgpu.h>
+#else
+    #include "webgpu.h"
+    #include "wgpu.h"
+#endif
 
 #if defined(WGPU_TARGET_MACOS)
     #include <Foundation/Foundation.h>
@@ -11,16 +18,19 @@
 #endif
 
 #include <GLFW/glfw3.h>
-#if defined(WGPU_TARGET_MACOS)
-    #define GLFW_EXPOSE_NATIVE_COCOA
-#elif defined(WGPU_TARGET_LINUX_X11)
-    #define GLFW_EXPOSE_NATIVE_X11
-#elif defined(WGPU_TARGET_LINUX_WAYLAND)
-    #define GLFW_EXPOSE_NATIVE_WAYLAND
-#elif defined(WGPU_TARGET_WINDOWS)
-    #define GLFW_EXPOSE_NATIVE_WIN32
+
+#ifndef EMSCRIPTEN
+    #if defined(WGPU_TARGET_MACOS)
+        #define GLFW_EXPOSE_NATIVE_COCOA
+    #elif defined(WGPU_TARGET_LINUX_X11)
+        #define GLFW_EXPOSE_NATIVE_X11
+    #elif defined(WGPU_TARGET_LINUX_WAYLAND)
+        #define GLFW_EXPOSE_NATIVE_WAYLAND
+    #elif defined(WGPU_TARGET_WINDOWS)
+        #define GLFW_EXPOSE_NATIVE_WIN32
+    #endif
+    #include <GLFW/glfw3native.h>
 #endif
-#include <GLFW/glfw3native.h>
 
 #include <array>
 
@@ -87,63 +97,6 @@ static void handle_glfw_framebuffer_size(GLFWwindow* window, int width, int heig
     context->config.height = height;
 
     wgpuSurfaceConfigure(context->surface, &context->config);
-}
-
-WGPUShaderModule load_shader_module(WGPUDevice device, const char* name) {
-    FILE* file = nullptr;
-    char* buf = nullptr;
-    WGPUShaderModule shader_module = nullptr;
-
-    do {
-        file = fopen(name, "rb");
-        if (!file) {
-            perror("fopen");
-            break;
-        }
-
-        if (fseek(file, 0, SEEK_END) != 0) {
-            perror("fseek");
-            break;
-        }
-        long length = ftell(file);
-        if (length == -1) {
-            perror("ftell");
-            break;
-        }
-        if (fseek(file, 0, SEEK_SET) != 0) {
-            perror("fseek");
-            break;
-        }
-
-        buf = (char*)malloc(length + 1);
-        assert(buf);
-        fread(buf, 1, length, file);
-        buf[length] = 0;
-
-        WGPUShaderModuleWGSLDescriptor shader_module_wgsl_descriptor = {
-            .chain =
-                WGPUChainedStruct{
-                    .sType = WGPUSType_ShaderModuleWGSLDescriptor,
-                },
-            .code = buf,
-        };
-
-        WGPUShaderModuleDescriptor shader_module_descriptor = {
-            .nextInChain = (const WGPUChainedStruct*)&shader_module_wgsl_descriptor,
-            .label = name,
-        };
-
-        shader_module = wgpuDeviceCreateShaderModule(device, &shader_module_descriptor);
-    } while (false);
-
-    if (file) {
-        fclose(file);
-    }
-    if (buf) {
-        free(buf);
-    }
-
-    return shader_module;
 }
 
 int main(int argc, char* argv[]) {
@@ -246,6 +199,29 @@ int main(int argc, char* argv[]) {
         context.surface = wgpuInstanceCreateSurface(context.instance, &surface_descriptor);
         assert(context.surface);
     }
+#elif defined(EMSCRIPTEN)
+    WGPUSurfaceDescriptorFromCanvasHTMLSelector surface_descriptor_from_canvas_html_selector = {
+        .chain =
+            WGPUChainedStruct{
+                .sType = WGPUSType_SurfaceDescriptorFromCanvasHTMLSelector,
+            },
+        .selector = state.canvas.name,
+    };
+
+    WGPUSurfaceDescriptor surface_descriptor = {.nextInChain =
+                                                    (WGPUChainedStruct*)&surface_descriptor_from_canvas_html_selector};
+
+    context.surface = wgpuInstanceCreateSurface(state.wgpu.instance, &surface_descriptor);
+    assert(context.surface);
+
+    WGPUSwapChainDescriptor swap_chain_descriptor = {
+        .usage = WGPUTextureUsage_RenderAttachment,
+        .format = WGPUTextureFormat_BGRA8Unorm,
+        .width = state.canvas.width,
+        .height = state.canvas.height,
+        .presentMode = WGPUPresentMode_Fifo,
+    };
+    return wgpuDeviceCreateSwapChain(state.wgpu.device, surface, &swap_chain_descriptor);
 #else
     #error "Unsupported WGPU_TARGET"
 #endif
@@ -263,7 +239,17 @@ int main(int argc, char* argv[]) {
     WGPUQueue queue = wgpuDeviceGetQueue(context.device);
     assert(queue);
 
-    WGPUShaderModule shader_module = load_shader_module(context.device, "../src/shader.wgsl");
+    //-----------------
+    // Setup pipeline
+    //-----------------
+
+#ifdef EMSCRIPTEN
+    auto shader_file = "shader.wgsl";
+#else
+    auto shader_file = "../resources/shader.wgsl";
+#endif
+
+    WGPUShaderModule shader_module = load_shader_module(context.device, shader_file);
     assert(shader_module);
 
     WGPUPipelineLayoutDescriptor pipeline_layout_descriptor = {
@@ -404,6 +390,7 @@ int main(int argc, char* argv[]) {
 
         wgpuRenderPassEncoderSetPipeline(render_pass_encoder, render_pipeline);
         wgpuRenderPassEncoderDraw(render_pass_encoder, 3, 1, 0, 0);
+
         wgpuRenderPassEncoderEnd(render_pass_encoder);
 
         WGPUCommandBufferDescriptor command_buffer_descriptor = {
