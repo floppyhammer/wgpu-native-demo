@@ -189,19 +189,21 @@ int main(int argc, char* argv[]) {
     {
         Display* x11_display = glfwGetX11Display();
         Window x11_window = glfwGetX11Window(window);
-        context.surface =
-            wgpuInstanceCreateSurface(context.instance,
-                                      &(const WGPUSurfaceDescriptor){
-                                          .nextInChain =
-                                              (const WGPUChainedStruct*)&(const WGPUSurfaceDescriptorFromXlibWindow){
-                                                  .chain =
-                                                      (const WGPUChainedStruct){
-                                                          .sType = WGPUSType_SurfaceDescriptorFromXlibWindow,
-                                                      },
-                                                  .display = x11_display,
-                                                  .window = x11_window,
-                                              },
-                                      });
+
+        WGPUSurfaceDescriptorFromXlibWindow surface_descriptor_from_xlib_window = {
+            .chain =
+                WGPUChainedStruct{
+                    .sType = WGPUSType_SurfaceDescriptorFromXlibWindow,
+                },
+            .display = x11_display,
+            .window = x11_window,
+        };
+
+        WGPUSurfaceDescriptor surface_descriptor = {
+            .nextInChain = (const WGPUChainedStruct*)&surface_descriptor_from_xlib_window,
+        };
+
+        context.surface = wgpuInstanceCreateSurface(context.instance, &surface_descriptor);
         assert(context.surface);
     }
 #elif defined(WGPU_TARGET_LINUX_WAYLAND)
