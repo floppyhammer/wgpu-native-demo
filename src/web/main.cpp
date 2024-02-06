@@ -1,6 +1,7 @@
 #include <array>
 #include <cassert>
 #include <cstdio>
+#include <iostream>
 
 #include "../common.h"
 #include "emscripten.h"
@@ -8,22 +9,26 @@
 #include "emscripten/html5_webgpu.h"
 #include "webgpu/webgpu.h"
 
+#if defined(__EMSCRIPTEN__)
+    #include <GLFW/glfw3.h>
+#endif
+
 //--------------------------------------------------
 // defines
 //--------------------------------------------------
 #define SHADER_SOURCE(...) #__VA_ARGS__
 
-//--------------------------------------------------
-// structs
-//--------------------------------------------------
-
-// global state
-typedef struct state_t {
+struct AppState {
     // canvas
     struct {
         const char* name;
         uint32_t width, height;
     } canvas;
+
+    // glfw
+    struct {
+        GLFWwindow* window;
+    } glfw;
 
     // wgpu
     struct {
@@ -39,15 +44,10 @@ typedef struct state_t {
         WGPUBuffer vbuffer, ibuffer, ubuffer;
         WGPUBindGroup bindgroup;
     } res;
-
-    // vars
-    struct {
-        float rot;
-    } var;
-} state_t;
+};
 
 // state
-static state_t state;
+static AppState state;
 
 //--------------------------------------------------
 // callbacks and functions
@@ -59,14 +59,11 @@ static void draw();
 
 // helper functions
 static WGPUSwapChain create_swapchain();
-static WGPUShaderModule create_shader(const char* code, const char* label);
-static WGPUBuffer create_buffer(const void* data, size_t size, WGPUBufferUsage usage);
 
 //--------------------------------------------------
-// vertex and fragment shaders
+// Vertex and fragment shaders
 //--------------------------------------------------
 
-// triangle shader
 static const char* wgsl_triangle = SHADER_SOURCE(
     // attribute/uniform decls
 
@@ -109,22 +106,36 @@ static const char* wgsl_triangle = SHADER_SOURCE(
 );
 
 //--------------------------------------------------
-//
-// main
-//
+// Main
 //--------------------------------------------------
 
 int main(int argc, const char* argv[]) {
     //-----------------
     // Init
     //-----------------
+    // Initialize GLFW
+    {
+        if (!glfwInit()) {
+            std::cerr << "Could not initialize GLFW!" << std::endl;
+            return 1;
+        } else {
+            std::cout << "Initialized GLFW" << std::endl;
+        }
+
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+        state.glfw.window = glfwCreateWindow(640, 480, "wgpu", NULL, NULL);
+        std::cout << "Created GLFW window" << std::endl;
+    }
 
     state.canvas.name = "canvas";
     state.wgpu.instance = wgpuCreateInstance(NULL);
     assert(state.wgpu.instance && "Creating instance failed!");
+    std::cout << "Created wgpu instance" << std::endl;
 
     state.wgpu.device = emscripten_webgpu_get_device();
     assert(state.wgpu.device && "Getting device failed!");
+    std::cout << "Got webgpu device" << std::endl;
 
     state.wgpu.queue = wgpuDeviceGetQueue(state.wgpu.device);
     assert(state.wgpu.queue && "Getting queue failed!");
@@ -138,10 +149,8 @@ int main(int argc, const char* argv[]) {
 
 #ifdef EMSCRIPTEN
     auto shader_file = "shader.wgsl";
-
 #else
     auto shader_file = "../resources/shader.wgsl";
-
 #endif
 
     WGPUShaderModule shader_module = load_shader_module(state.wgpu.device, shader_file);
@@ -300,31 +309,4 @@ WGPUSwapChain create_swapchain() {
         .presentMode = WGPUPresentMode_Fifo,
     };
     return wgpuDeviceCreateSwapChain(state.wgpu.device, surface, &swap_chain_descriptor);
-}
-
-WGPUShaderModule create_shader(const char* code, const char* label) {
-    WGPUShaderModuleWGSLDescriptor wgsl = {
-        .chain =
-            WGPUChainedStruct{
-                .sType = WGPUSType_ShaderModuleWGSLDescriptor,
-            },
-        .code = code,
-    };
-
-    WGPUShaderModuleDescriptor shader_module_descriptor = {
-        .nextInChain = (WGPUChainedStruct*)(&wgsl),
-        .label = label,
-    };
-    return wgpuDeviceCreateShaderModule(state.wgpu.device, &shader_module_descriptor);
-}
-
-WGPUBuffer create_buffer(const void* data, size_t size, WGPUBufferUsage usage) {
-    WGPUBufferDescriptor buffer_descriptor = {
-        .usage = WGPUBufferUsage(WGPUBufferUsage_CopyDst | usage),
-        .size = size,
-    };
-
-    WGPUBuffer buffer = wgpuDeviceCreateBuffer(state.wgpu.device, &buffer_descriptor);
-    wgpuQueueWriteBuffer(state.wgpu.queue, buffer, 0, data, size);
-    return buffer;
 }

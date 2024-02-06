@@ -60,3 +60,33 @@ WGPUShaderModule load_shader_module(WGPUDevice device, const char* name) {
 
     return shader_module;
 }
+
+WGPUShaderModule create_shader(WGPUDevice device, const char* code, const char* label) {
+    WGPUShaderModuleWGSLDescriptor wgsl = {
+        .chain =
+            WGPUChainedStruct{
+                .sType = WGPUSType_ShaderModuleWGSLDescriptor,
+            },
+        .code = code,
+    };
+
+    WGPUShaderModuleDescriptor shader_module_descriptor = {
+        .nextInChain = (WGPUChainedStruct*)(&wgsl),
+        .label = label,
+    };
+    return wgpuDeviceCreateShaderModule(device, &shader_module_descriptor);
+}
+
+WGPUBuffer create_buffer(WGPUDevice device, WGPUQueue queue, size_t size, WGPUBufferUsage usage, const void* data) {
+    WGPUBufferDescriptor buffer_descriptor = {
+        .usage = WGPUBufferUsageFlags(WGPUBufferUsage_CopyDst | usage),
+        .size = size,
+    };
+
+    WGPUBuffer buffer = wgpuDeviceCreateBuffer(device, &buffer_descriptor);
+    if (data) {
+        wgpuQueueWriteBuffer(queue, buffer, 0, data, size);
+    }
+
+    return buffer;
+}
